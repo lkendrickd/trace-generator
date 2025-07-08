@@ -41,16 +41,22 @@ make docker-up-inmemory
 
 ### 3. Start with ClickHouse (Recommended for Realistic Testing)
 
-Ensure you have a running ClickHouse instance, then configure the environment:
+No need to set up your own ClickHouse instance! The full stack including ClickHouse, OpenTelemetry Collector, Jaeger, and Trace Generator can be brought online with one command:
+
+```bash
+make docker-up
+```
+
+This will automatically start all required services with sensible defaults. If you need to customize the configuration, you can set environment variables before running:
 
 ```bash
 export DATABASE_TYPE=clickhouse
-export DATABASE_HOST=your-clickhouse-host
+export DATABASE_HOST=custom-clickhouse-host
 export DATABASE_PORT=8123
-export DATABASE_USER=user
-export DATABASE_PASSWORD=password
-export DATABASE_NAME=your_database_name
-make run
+export DATABASE_USER=custom-user
+export DATABASE_PASSWORD=custom-password
+export DATABASE_NAME=custom-database
+make docker-up
 ```
 
 ### 4. Using Docker Compose
