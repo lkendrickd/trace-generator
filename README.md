@@ -7,6 +7,9 @@ This project simulates various scenarios with configurable error rates, realisti
 
 ## Quick Start
 
+### Prequisites
+- Docker and Docker Compose installed
+
 Get up and running with the OpenTelemetry Trace Generator in just a few steps.
 
 ### 1. Clone the Repository
@@ -21,7 +24,7 @@ cd trace-generator
 No external dependencies required—just run:
 
 ```bash
-make run-inmemory
+make docker-up-inmemory
 ```
 
 Or, to customize the in-memory settings. These are how many traces will be stored in memory
@@ -29,10 +32,10 @@ after which the oldest traces will be discarded:
 
 ```bash
 export INMEMORY_MAX_TRACES=200
-make run
+make docker-up-inmemory
 ```
 
-### 3. Start with ClickHouse (Recommended for Production)
+### 3. Start with ClickHouse (Recommended for Realistic Testing)
 
 Ensure you have a running ClickHouse instance, then configure the environment:
 
