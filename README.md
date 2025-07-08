@@ -1,5 +1,9 @@
 # OpenTelemetry Trace Generator
 
+<p align="left">
+  <img src="images/repologo.png" alt="OpenTelemetry Trace Generator Logo" width="200"/>
+</p>
+
 A tool for generating realistic OpenTelemetry traces for testing and development purposes.
 This project simulates various scenarios with configurable error rates, realistic timing, and nested service calls. This is made possible with the scenarios defined in the `scenarios/` directory.
 
