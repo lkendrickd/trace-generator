@@ -1,0 +1,84 @@
+# =======================================================================================
+# ANALYTICS BATCH JOB - Long-running data processing
+# Demonstrates: Batch processing, multiple data sources, resource exhaustion errors
+# =======================================================================================
+
+
+- name: "Analytics Batch Job"
+  weight: 10
+  vars:
+    job_id: "job-{{random.uuid}}"
+    start_time: "{{time.iso}}"
+  root_span:
+    service: "analytics-service"
+    operation: "daily_metric_aggregation"
+    kind: "INTERNAL"
+    delay_ms: [100, 200]            # Job initialization time
+    attributes:
+      job.id: "{{job_id}}"
+      job.start_time: "{{start_time}}"
+      job.type: "batch"
+    events:
+      - name: "job.started"
+        attributes:
+          "job.id": "{{job_id}}"
+    calls:
+      # Bulk data fetching - slow operations
+      - service: "analytics-service"
+        operation: "fetch_user_data"
+        kind: "CLIENT"
+        delay_ms: [500, 1000]        # 0.5-1 second for bulk data
+        attributes:
+          source.service: "identity-service"
+          records.count: "{{random.int(5000, 10000)}}"
+        error_conditions:
+          - probability: 5          # 5% data fetch failures
+            type: "DataFetchFailed"
+            message: "Failed to fetch bulk data from identity-service."
+          - probability: 10          # 10% service timeouts
+            type: "IdentityServiceTimeout"
+            message: "Identity service did not respond in time."
+      
+      # Additional data source
+      - service: "analytics-service"
+        operation: "fetch_order_data"
+        kind: "CLIENT"
+        delay_ms: [800, 1500]        # 0.8-1.5 seconds for order data
+        attributes:
+          source.service: "order-service"
+          records.count: "{{random.int(1000, 5000)}}"
+        error_conditions:
+          - probability: 1          # 1% order service unavailable
+            type: "OrderServiceUnavailable"
+            message: "Order service is unavailable."
+      
+      # Heavy computation phase
+      - service: "analytics-service"
+        operation: "compute_aggregates"
+        kind: "INTERNAL"
+        delay_ms: [1000, 2000]       # 1-2 seconds for heavy computation
+        attributes:
+          compute.complexity: "high"
+        error_conditions:
+          - probability: 2          # 2% memory exhaustion (realistic for big data)
+            type: "MemoryExhausted"
+            message: "Job failed during computation due to excessive memory usage."
+          - probability: 1          # 1% computation timeouts
+            type: "ComputationTimeout"
+            message: "Computation took too long and was aborted."
+      
+      # Results storage
+      - service: "analytics-service"
+        operation: "write_results_to_db"
+        kind: "CLIENT"
+        delay_ms: [300, 600]         # Database write time
+        attributes:
+          db.system: "clickhouse"
+          db.table: "daily_kpis"
+        error_conditions:
+          - probability: 3          # 3% database write failures
+            type: "DatabaseWriteFailed"
+            message: "Failed to write aggregated metrics to database."
+          - probability: 1          # 1% ClickHouse unavailable
+            type: "ClickhouseUnavailable"
+            message: "Clickhouse database is unavailable."

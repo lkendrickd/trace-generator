@@ -1,0 +1,81 @@
+# =======================================================================================
+# USER PROFILE UPDATE - CRUD operations with optimistic locking
+# Demonstrates: Profile updates, cache invalidation, optimistic locking conflicts
+# =======================================================================================
+
+
+- name: "User Profile Update"
+  weight: 15
+  vars:
+    user_id: "{{random.int(1000, 9999)}}"
+    session_id: "sess-{{random.uuid}}"
+    client_ip: "{{random.ipv4}}"
+  root_span:
+    service: "api-gateway"
+    operation: "PUT /api/v1/users/{{user_id}}"
+    kind: "SERVER"
+    delay_ms: [1, 5]                # Very fast API gateway
+    attributes:
+      http.method: "PUT"
+      http.target: "/api/v1/users/{{user_id}}"
+      http.client_ip: "{{client_ip}}"
+      user.id: "{{user_id}}"
+    calls:
+      # Profile update processing
+      - service: "identity-service"
+        operation: "update_user_profile"
+        kind: "CLIENT"
+        delay_ms: [50, 100]          # Profile update processing time
+        attributes:
+          user.id: "{{parent.attributes.user.id}}"
+          update.fields: "['email', 'displayName']"
+        error_conditions:
+          - probability: 4          # 4% validation errors (user input issues)
+            type: "ValidationError"
+            message: "Submitted data failed validation (e.g., invalid email format)."
+          - probability: 10         # 10% update conflicts
+            type: "UpdateConflict"
+            message: "Profile update conflict detected."
+        calls:
+          # Database update with optimistic locking
+          - service: "identity-service"
+            operation: "db_update_user"
+            kind: "CLIENT"
+            delay_ms: [30, 60]       # Database update time
+            attributes:
+              db.system: "postgresql"
+              db.statement: "UPDATE users SET ... WHERE id = ?"
+            error_conditions:
+              - probability: 3      # 3% optimistic lock exceptions
+                type: "OptimisticLockException"
+                message: "User profile was updated by another process."
+              - probability: 10      # 10% general database errors
+                type: "DatabaseWriteError"
+                message: "Failed to write update to database."
+          
+          # Cache invalidation
+          - service: "identity-service"
+            operation: "cache_invalidate_user"
+            kind: "CLIENT"
+            delay_ms: [1, 5]         # Very fast cache operation
+            attributes:
+              db.system: "redis"
+              db.operation: "DEL"
+              cache.key: "user:profile:{{parent.attributes.user.id}}"
+            error_conditions:
+              - probability: 10      # 10% cache service down
+                type: "CacheServiceDown"
+                message: "Redis cache service is down."
+          
+          # Update notification
+          - service: "notification-service"
+            operation: "send_profile_update_notification"
+            kind: "CLIENT"
+            delay_ms: [10, 20]       # Fast notification
+            attributes:
+              notification.type: "profile_update"
+              user.id: "{{parent.attributes.user.id}}"
+            error_conditions:
+              - probability: 10      # 10% notification failures
+                type: "NotificationFailed"
+                message: "Failed to send profile update notification."

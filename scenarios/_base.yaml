@@ -1,0 +1,49 @@
+# =========================================================================
+# OpenTelemetry Trace Generator - Base Configuration
+# =========================================================================
+
+# Schema version for validation compatibility
+schema_version: 1
+
+# FORMAT DOCUMENTATION:
+# 
+# PROBABILITY: Use whole numbers 0-100 representing percentage chance
+#   probability: 1   = 1% chance (1 out of 100 traces)
+#   probability: 5   = 5% chance (5 out of 100 traces) 
+#   probability: 10  = 10% chance (1 out of 10 traces)
+#   probability: 25  = 25% chance (1 out of 4 traces)
+#
+# DURATION: Use delay_ms with milliseconds for timing
+#   delay_ms: [1, 5]       = 1-5 milliseconds (very fast cache lookup)
+#   delay_ms: [10, 30]     = 10-30 milliseconds (fast API call)
+#   delay_ms: [50, 200]    = 50-200 milliseconds (database query)
+#   delay_ms: [500, 1000]  = 0.5-1 second (slow external service)
+#   delay_ms: [1000, 3000] = 1-3 seconds (batch processing)
+#
+# EXAMPLES:
+#   Fast, reliable service:    delay_ms: [1, 5], probability: 1
+#   Normal service:            delay_ms: [20, 100], probability: 2  
+#   Slow, problematic service: delay_ms: [200, 800], probability: 15
+
+# Context Store: Enables linking between async producer/consumer traces
+# max_size = Maximum number of exported contexts kept in memory for linking
+# Only spans with 'export_context_as' create entries (not all traces)
+# Used for: Async messaging, distributed workflows, parent-child relationships
+# Example: Producer exports "order_123", Consumer links with "order_*" pattern
+
+# Service definitions - each represents a microservice in the system
+services:
+  - analytics-service
+  - api-gateway
+  - auth-service
+  - billing-service
+  - catalog-service
+  - config-service
+  - grafana
+  - identity-service
+  - notification-service
+  - order-service
+  - proc-service
+  - resource-service
+  - search-service
+  - tempo

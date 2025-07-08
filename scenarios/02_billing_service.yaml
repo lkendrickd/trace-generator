@@ -1,0 +1,80 @@
+# =======================================================================================
+# BILLING SCENARIO - Payment processing with higher error rates
+# Demonstrates: Payment gateway integration, entitlement updates, receipt generation
+# =======================================================================================
+
+- name: "Billing Service - Process Subscription Job"
+  weight: 10
+  root_span:
+    service: "billing-service"
+    operation: "process_subscription_job"
+    kind: "CONSUMER"
+    delay_ms: [5, 10]               # Fast job initialization
+    attributes:
+      messaging.system: "rabbitmq"
+      messaging.destination: "subscriptions"
+      job.id: "job-{{random.uuid}}"
+    calls:
+      # Payment processing - slower with higher error rates
+      - service: "billing-service"
+        operation: "process_payment"
+        kind: "INTERNAL"
+        delay_ms: [100, 300]         # Payment gateway delays
+        attributes:
+          payment.processor: "{{random.choice(['stripe', 'paypal', 'braintree'])}}"
+          user.id: "{{random.int(1000, 9999)}}"
+          payment.amount_usd: "{{random.float(5.00, 100.00)}}"
+        error_conditions:
+          - probability: 6          # 6% payment declines (realistic rate)
+            type: "PaymentDeclined"
+            message: "Payment was declined by the payment gateway."
+          - probability: 2          # 2% fraud detection
+            type: "FraudDetected"
+            message: "Transaction flagged as fraudulent and was blocked."
+          - probability: 1          # 1% gateway timeouts
+            type: "PaymentGatewayTimeout"
+            message: "Payment gateway did not respond in time."
+        calls:
+          # Entitlement updates after successful payment
+          - service: "resource-service"
+            operation: "update_entitlements"
+            kind: "CLIENT"
+            delay_ms: [30, 60]       # Moderate entitlement update time
+            attributes:
+              user.id: "{{parent.attributes.user.id}}"
+              action: "grant_subscription"
+            error_conditions:
+              - probability: 2      # 2% entitlement failures
+                type: "EntitlementUpdateFailed"
+                message: "Failed to update user entitlements after payment."
+              - probability: 1      # 1% service down
+                type: "ResourceServiceDown"
+                message: "Resource service is not responding."
+            calls:
+              - service: "notification-service"
+                operation: "send_entitlement_update"
+                kind: "CLIENT"
+                delay_ms: [10, 20]   # Fast notification
+                attributes:
+                  notification.type: "entitlement"
+                  user.id: "{{parent.attributes.user.id}}"
+                error_conditions:
+                  - probability: 1
+                    type: "NotificationFailed"
+                    message: "Failed to notify entitlement update."
+          
+          # Receipt generation and delivery
+          - service: "notification-service"
+            operation: "send_billing_receipt"
+            kind: "CLIENT"
+            delay_ms: [50, 150]      # Email template processing time
+            attributes:
+              notification.type: "email"
+              template.id: "billing-receipt-{{random.int(1,3)}}"
+            error_conditions:
+              - probability: 3      # 3% template issues
+                type: "TemplateNotFound"
+                message: "The requested email template could not be found."
+              - probability: 1      # 1% email service down
+                type: "EmailServiceDown"
+                message: "Email service is currently down."

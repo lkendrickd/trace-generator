@@ -1,0 +1,55 @@
+# =======================================================================================
+# GRAFANA TEMPO SCENARIO - Observability query with high error rates
+# Demonstrates: Grafana integration, trace querying, realistic Tempo failure modes
+# =======================================================================================
+
+
+- name: "Grafana - Tempo Query"
+  weight: 10
+  vars:
+    trace_id_to_find: "{{random.uuid}}"
+    user_login: "admin"
+  root_span:
+    service: "grafana"
+    operation: "GET /api/datasources/proxy/tempo/api/traces/{{trace_id_to_find}}"
+    kind: "SERVER"
+    delay_ms: [50, 100]             # Grafana proxy processing
+    attributes:
+      http.method: "GET"
+      http.target: "/api/datasources/proxy/tempo/api/traces/{{trace_id_to_find}}"
+      grafana.user: "{{user_login}}"
+    calls:
+      # Authentication check
+      - service: "grafana"
+        operation: "auth_proxy_check"
+        kind: "INTERNAL"
+        delay_ms: [5, 10]            # Fast auth check
+        attributes:
+          user: "{{parent.attributes.grafana.user}}"
+        error_conditions:
+          - probability: 3          # 3% permission denied
+            type: "PermissionDenied"
+            message: "User does not have permission to query the Tempo datasource."
+          - probability: 1          # 1% auth proxy timeouts
+            type: "AuthProxyTimeout"
+            message: "Auth proxy check timed out."
+      
+      # Tempo trace query - high failure rates for realism
+      - service: "tempo"
+        operation: "findTraceByID"
+        kind: "CLIENT"
+        delay_ms: [200, 500]         # Tempo query processing time
+        attributes:
+          rpc.system: "grpc"
+          rpc.service: "tempo.Querier"
+          db.statement: "SELECT * FROM traces WHERE traceID = {{trace_id_to_find}}"
+        error_conditions:
+          - probability: 15         # 15% service unavailable (realistic for Tempo)
+            type: "ServiceUnavailable"
+            message: "Tempo query failed: connection refused or service offline (503)"
+          - probability: 25         # 25% query timeouts (large traces)
+            type: "QueryTimeout"
+            message: "Tempo query timed out for a very large trace."
+          - probability: 1          # 1% trace not found
+            type: "TraceNotFound"
+            message: "Trace ID not found in Tempo."

@@ -1,0 +1,34 @@
+
+# =======================================================================================
+# CONFIGURATION SERVICE - High error rates for config retrieval
+# Demonstrates: Configuration retrieval, service discovery, high failure rates
+# =======================================================================================
+
+- name: "Configuration Service - Retrieve Config"
+  weight: 5
+  root_span:
+    service: "config-service"
+    operation: "get_config"
+    kind: "SERVER"
+    delay_ms: [10, 30]
+    attributes:
+      config.key: "service.discovery"
+    error_conditions:
+      - probability: 20
+        type: "ConfigNotFound"
+        message: "Requested configuration key not found."
+      - probability: 10
+        type: "ConfigServiceUnavailable"
+        message: "Configuration service is currently unavailable."
+    calls:
+      - service: "config-service"
+        operation: "db_get_config"
+        kind: "CLIENT"
+        delay_ms: [10, 50]
+        attributes:
+          db.system: "postgresql"
+          db.operation: "SELECT"
+        error_conditions:
+          - probability: 5
+            type: "DatabaseReadError"
+            message: "Failed to read configuration from database."

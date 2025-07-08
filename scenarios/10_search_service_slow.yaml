@@ -1,0 +1,61 @@
+# =======================================================================================
+# SEARCH SERVICE - Very Slow Indexing Operations
+# Demonstrates: Slow indexing operations, high error rates, realistic search service behavior
+# =======================================================================================
+
+- name: "Search Service - Very Slow Indexing"
+  weight: 5
+  root_span:
+    service: "search-service"
+    operation: "index_large_dataset"
+    kind: "INTERNAL"
+    delay_ms: [10000, 30000]            # 10-30 seconds for very large indexing
+    attributes:
+      trigger: "manual"
+      batch.size: 100000
+    error_conditions:
+      - probability: 10
+        type: "IndexTimeout"
+        message: "Indexing operation timed out due to dataset size."
+      - probability: 5
+        type: "IndexServiceUnavailable"
+        message: "Search service is unavailable for indexing."
+    calls:
+      - service: "catalog-service"
+        operation: "fetch_large_dataset"
+        kind: "CLIENT"
+        delay_ms: [5000, 10000]        # 5-10 seconds for large data fetch
+        attributes:
+          db.system: "postgresql"
+          db.operation: "SELECT"
+        error_conditions:
+          - probability: 5
+            type: "DatabaseTimeout"
+            message: "Database timed out fetching large dataset."
+          - probability: 2
+            type: "DatabaseUnavailable"
+            message: "Catalog database is unavailable."
+      - service: "search-service"
+        operation: "bulk_index"
+        kind: "INTERNAL"
+        delay_ms: [3000, 7000]        # 3-7 seconds for bulk indexing
+        attributes:
+          index.name: "products_v4"
+          documents.count: 100000
+        error_conditions:
+          - probability: 10
+            type: "BulkIndexFailed"
+            message: "Bulk indexing failed due to resource exhaustion."
+          - probability: 5
+            type: "IndexWriteTimeout"
+            message: "Bulk index write timed out."
+      - service: "notification-service"
+        operation: "send_indexing_report"
+        kind: "CLIENT"
+        delay_ms: [50, 150]
+        attributes:
+          notification.type: "indexing_report"
+        error_conditions:
+          - probability: 5
+            type: "NotificationFailed"
+            message: "Failed to send indexing completion notification."

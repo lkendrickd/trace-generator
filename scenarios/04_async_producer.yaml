@@ -1,0 +1,55 @@
+# =======================================================================================
+# ASYNC PRODUCER SCENARIO - Order creation with context export
+# Demonstrates: Message publishing, context export for linking, item validation
+# =======================================================================================
+
+
+- name: "Async Producer - Create Order"
+  weight: 10
+  root_span:
+    service: "order-service"
+    operation: "POST /orders"
+    kind: "SERVER"
+    delay_ms: [10, 20]              # API endpoint response time
+    export_context_as: "order_message_{{random.uuid}}"  # Export for consumer linking
+    attributes:
+      http.method: "POST"
+      messaging.message_id: "{{context_key}}"
+      item.id: "{{random.int(100, 999)}}"
+    calls:
+      # Item validation before order creation
+      - service: "catalog-service"
+        operation: "validate_item"
+        kind: "CLIENT"
+        delay_ms: [20, 40]           # Validation processing time
+        attributes:
+          item.id: "{{parent.attributes.item.id}}"
+        error_conditions:
+          - probability: 8          # 8% invalid items (realistic for user input)
+            type: "InvalidItemID"
+            message: "The requested item ID does not exist in the catalog."
+          - probability: 1          # 1% validation timeouts
+            type: "ValidationTimeout"
+            message: "Item validation timed out."
+        calls:
+          - service: "catalog-service"
+            operation: "db_validate_item"
+            kind: "CLIENT"
+            delay_ms: [10, 20]       # Database validation query
+            attributes:
+              db.system: "postgresql"
+              db.operation: "SELECT"
+            error_conditions:
+              - probability: 1      # 1% database errors
+                type: "DatabaseError"
+                message: "Database error during item validation."
+      
+      # Message queue publishing
+      - service: "order-service"
+        operation: "queue_order_message"
+        kind: "PRODUCER"
+        delay_ms: [5, 10]            # Fast message publishing
+        error_conditions:
+          - probability: 1          # 1% queue full errors
+            type: "QueueFull"
+            message: "Order message queue is full."

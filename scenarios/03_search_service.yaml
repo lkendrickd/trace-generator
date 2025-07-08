@@ -1,0 +1,68 @@
+# =======================================================================================
+# SEARCH SCENARIO - Batch indexing operations
+# Demonstrates: Long-running operations, configuration retrieval, batch processing
+# =======================================================================================
+
+- name: "Search Service - Re-index Catalog"
+  weight: 5
+  root_span:
+    service: "search-service"
+    operation: "reindex_catalog"
+    kind: "INTERNAL"
+    delay_ms: [10, 20]              # Fast indexing start
+    attributes:
+      trigger: "cron"
+      batch.size: 1000
+    calls:
+      # Configuration retrieval
+      - service: "config-service"
+        operation: "get_indexing_settings"
+        kind: "CLIENT"
+        delay_ms: [10, 20]           # Fast config lookup
+        attributes:
+          config.keys: "['search.batch_size', 'search.replicas']"
+        error_conditions:
+          - probability: 5          # 5% config not found (moderate)
+            type: "ConfigNotFound"
+            message: "Required indexing configuration was not found."
+          - probability: 1          # 1% config service timeout
+            type: "ConfigServiceTimeout"
+            message: "Config service did not respond in time."
+      
+      # Large data retrieval - slow operation
+      - service: "catalog-service"
+        operation: "list_all_items"
+        kind: "CLIENT"
+        delay_ms: [200, 800]         # Slow bulk data retrieval
+        error_conditions:
+          - probability: 2          # 2% service unavailable
+            type: "CatalogServiceUnavailable"
+            message: "Catalog service is unavailable."
+        calls:
+          - service: "catalog-service"
+            operation: "db_list_items"
+            kind: "CLIENT"
+            delay_ms: [50, 100]      # Database bulk query
+            attributes:
+              db.system: "postgresql"
+              db.operation: "SELECT"
+            error_conditions:
+              - probability: 1      # 1% database read errors
+                type: "DatabaseReadError"
+                message: "Failed to read items from database."
+      
+      # Batch indexing operation
+      - service: "search-service"
+        operation: "index_batch"
+        kind: "INTERNAL"
+        delay_ms: [100, 300]         # Index writing time
+        attributes:
+          index.name: "products_v3"
+          documents.count: 1000
+        error_conditions:
+          - probability: 3          # 3% index lock conflicts
+            type: "IndexLocked"
+            message: "Index is currently locked for writing by another process."
+          - probability: 1          # 1% index write failures
+            type: "IndexWriteFailed"
+            message: "Failed to write batch to index."

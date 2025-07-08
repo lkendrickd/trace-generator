@@ -1,0 +1,118 @@
+services:
+  otel-collector:
+    build:
+      context: ..
+      dockerfile: otel-collector/Dockerfile  # Custom Dockerfile for the OpenTelemetry collector
+    environment:
+      - OTEL_LOG_LEVEL=ERROR  # Only show errors, reduces log noise
+    logging:
+      driver: "json-file"  # Store logs in JSON format
+      options:
+        max-size: "10m"  # Limit log file size to prevent disk space issues
+        max-file: "3"  # Keep only 3 rotated log files
+    volumes:
+      - ../otel-collector/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml  # Mount the config file into the container
+    ports:
+      - "4317:4317"  # OTLP gRPC receiver - main port for receiving traces
+      - "4318:4318"  # OTLP HTTP receiver - alternative protocol for traces
+    depends_on:
+      clickhouse:
+        condition: service_healthy  # Ensures ClickHouse is ready before starting
+      jaeger:
+        condition: service_started  # Ensures Jaeger is available
+    restart: unless-stopped
+    # The collector acts as a buffer between trace generators and storage
+
+  trace-generator:
+    build:
+      context: ..
+      dockerfile: Dockerfile  # Dockerfile is now at the project root
+    ports:
+      - "8000:8000"
+    environment:
+      # --- Core OpenTelemetry & Engine Configuration ---
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 # Endpoint for the OpenTelemetry collector
+      - TRACE_INTERVAL_MIN=${TRACE_INTERVAL_MIN:-1.00} # Minimum interval between trace generations
+      - TRACE_INTERVAL_MAX=${TRACE_INTERVAL_MAX:-2.00} # Maximum interval between trace generations
+      - TRACE_NUM_WORKERS=${TRACE_NUM_WORKERS:-4}  # Number of worker threads for generating traces
+      - MAX_TEMPLATE_ITERATIONS=${MAX_TEMPLATE_ITERATIONS:-10}  # Maximum iterations for resolving templates
+
+      # --- Database Configuration ---
+      # Database configuration with proper variable names matching code in config.py and db.py
+      - DATABASE_TYPE=${DATABASE_TYPE:-clickhouse}
+      - DATABASE_HOST=${DATABASE_HOST:-clickhouse}
+      - DATABASE_PORT=${DATABASE_PORT:-8123}
+      - DATABASE_USER=${DATABASE_USER:-user}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-password}
+      - DATABASE_NAME=${DATABASE_NAME:-otel}
+      - INMEMORY_MAX_TRACES=${INMEMORY_MAX_TRACES:-100}  # Maximum traces to store in memory
+      
+      # Legacy variables are still supported in the code
+      # - CLICKHOUSE_HOST=${CLICKHOUSE_HOST:-clickhouse}
+      # - CLICKHOUSE_PORT=${CLICKHOUSE_PORT:-8123}
+      # - CLICKHOUSE_USER=${CLICKHOUSE_USER:-user}
+      # - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-password}
+      # - CLICKHOUSE_DATABASE=${CLICKHOUSE_DATABASE:-otel}
+      # --- UI Configuration ---
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
+      - SERVER_PORT=${SERVER_PORT:-8000}
+      - TRACE_FETCH_LIMIT=${TRACE_FETCH_LIMIT:-30}  # Default in config.py is 30
+      - CARD_DISPLAY_LIMIT=${CARD_DISPLAY_LIMIT:-10}  # Default in config.py is 10
+      - STATUS_UPDATE_INTERVAL=${STATUS_UPDATE_INTERVAL:-2.0}
+      
+      # --- Python Configuration ---
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+
+      # --- Scenario Directory ---
+      - SCENARIOS_DIR=/app/scenarios
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.5  # Official ClickHouse image with specific version
+    ports:
+      - "8123:8123"  # HTTP interface for ClickHouse queries and management
+      - "9000:9000"  # Native TCP interface for ClickHouse clients
+    volumes:
+      - ../init-db.sql:/docker-entrypoint-initdb.d/init-db.sql  # SQL script to initialize the database
+      - clickhouse_data:/var/lib/clickhouse  # Persistent volume for ClickHouse data
+    environment:
+      - CLICKHOUSE_DB=otel  # Name of the database to create
+      - CLICKHOUSE_USER=user  # Default username
+      - CLICKHOUSE_PASSWORD=password  # Default password
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1  # Enable access management
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]  # Simple query to check if ClickHouse is running
+      interval: 10s  # Check every 10 seconds
+      timeout: 5s  # Time to wait for a response
+      retries: 5  # Number of retries before marking unhealthy
+      start_period: 30s  # Initial delay before starting health checks
+    # ClickHouse stores all trace data and enables complex analytical queries
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.48  # All-in-one Jaeger image with UI, collector, and storage
+    ports:
+      - "16686:16686"  # Jaeger UI - access at http://localhost:16686 for visual trace analysis
+      - "14250:14250"  # gRPC for trace ingest - used by other Jaeger components
+      - "14268:14268"  # HTTP for trace ingest - alternative protocol
+      # Don't expose these ports to the host to avoid conflicts with otel-collector
+      # They'll still be available inside the Docker network
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true  # Enable OpenTelemetry protocol support
+      - COLLECTOR_OTLP_GRPC_HOST_PORT=:4317  # Explicitly configure OTLP gRPC port
+      - COLLECTOR_OTLP_HTTP_HOST_PORT=:4318  # Explicitly configure OTLP HTTP port
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411  # Enable Zipkin compatibility
+      - LOG_LEVEL=error  # Only show errors
+    restart: unless-stopped  # Automatically restart if container stops
+    # Jaeger provides a visual interface for inspecting traces and diagnosing issues
+
+volumes:
+  clickhouse_data:  # Persistent volume for ClickHouse data to survive container restarts
+    # Without this volume, all trace data would be lost when containers are recreated

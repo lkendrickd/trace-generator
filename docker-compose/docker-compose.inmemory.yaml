@@ -1,0 +1,30 @@
+# docker-compose.inmemory.yaml
+# Standalone file for running with in-memory database (no external database needed)
+# Usage: docker compose -f docker-compose.inmemory.yaml up
+
+services:
+  trace-generator:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_TYPE=inmemory
+      - DATABASE_HOST=inmemory
+      - INMEMORY_MAX_TRACES=100
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - SCENARIOS_DIR=/app/scenarios
+    ports:
+      - "8000:8000"
+    depends_on:
+      - otel-collector
+
+  otel-collector:
+    build:
+      context: ..
+      dockerfile: otel-collector/Dockerfile
+    volumes:
+      - ../otel-collector/otel-collector-inmemory.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on: []

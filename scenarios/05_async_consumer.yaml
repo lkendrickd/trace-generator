@@ -1,0 +1,61 @@
+# =======================================================================================
+# ASYNC CONSUMER SCENARIO - Order processing with context linking
+# Demonstrates: Message consumption, context linking, SMS notifications
+# =======================================================================================
+
+
+- name: "Async Consumer - Process Order"
+  weight: 10
+  root_span:
+    service: "notification-service"
+    operation: "process_order_from_queue"
+    kind: "CONSUMER"
+    delay_ms: [1, 2]                # Very fast message consumption
+    link_from_context: "order_message_*"  # Link to producer context
+    attributes:
+      messaging.system: "rabbitmq"
+      messaging.source: "orders_queue"
+    events:
+      - name: "message.received"
+        attributes:
+          "message.processed": "true"
+          "consumer.type": "order_processor"
+    calls:
+      # User contact information lookup
+      - service: "identity-service"
+        operation: "get_user_contact_info"
+        kind: "CLIENT"
+        delay_ms: [30, 50]           # Contact info retrieval
+        error_conditions:
+          - probability: 4          # 4% user not found
+            type: "UserNotFound"
+            message: "Could not find user associated with the order."
+          - probability: 1          # 1% contact fetch failures
+            type: "ContactInfoFetchFailed"
+            message: "Failed to fetch user contact info."
+      
+      # SMS notification delivery
+      - service: "notification-service"
+        operation: "send_order_confirmation"
+        kind: "CLIENT"
+        delay_ms: [50, 100]          # SMS provider delays
+        attributes:
+          notification.type: "sms"
+        error_conditions:
+          - probability: 6          # 6% SMS delivery failures (realistic)
+            type: "SmsDeliveryFailed"
+            message: "SMS provider failed to deliver confirmation."
+          - probability: 1          # 1% provider unavailable
+            type: "SmsProviderUnavailable"
+            message: "SMS provider is currently unavailable."
+        calls:
+          - service: "notification-service"
+            operation: "log_sms_attempt"
+            kind: "INTERNAL"
+            delay_ms: [1, 2]         # Fast logging
+            attributes:
+              log.type: "sms_attempt"
+            error_conditions:
+              - probability: 1      # 1% log write failures
+                type: "LogWriteFailed"
+                message: "Failed to write SMS attempt log."
